@@ -530,6 +530,49 @@ def users_detail(request, user_id):
 # RESIDENTS
 # ============================================================
 @csrf_exempt
+def residents_promote_year(request):
+    if request.method != 'POST':
+        return JsonResponse({'status': 'error', 'message': 'Only POST allowed'}, status=405)
+    try:
+        data = json.loads(request.body) if request.body else {}
+        increment_by = int(data.get('increment_by', 1))
+        institute_id = data.get('institute_id')
+        current_year = data.get('current_year')
+        max_year = int(data.get('max_year', 4))
+        max_year_action = data.get('max_year_action', 'increment') # 'increment', 'cap', 'graduate'
+
+        queryset = Resident.objects.filter(person_type='student')
+        if institute_id and str(institute_id).lower() != 'all':
+            queryset = queryset.filter(institute_id=institute_id)
+        if current_year and str(current_year).lower() != 'all':
+            queryset = queryset.filter(year_of_study=int(current_year))
+
+        updated_count = 0
+        for resident in queryset:
+            curr_y = resident.year_of_study if resident.year_of_study is not None and resident.year_of_study > 0 else 1
+            if curr_y >= max_year:
+                if max_year_action == 'cap':
+                    new_y = max_year
+                elif max_year_action == 'graduate':
+                    new_y = max_year + 1
+                else:
+                    new_y = curr_y + increment_by
+            else:
+                new_y = curr_y + increment_by
+
+            resident.year_of_study = new_y
+            resident.save()
+            updated_count += 1
+
+        return JsonResponse({
+            'status': 'success',
+            'message': f'Successfully promoted {updated_count} student(s) (+{increment_by} Year of study)!',
+            'updated_count': updated_count
+        })
+    except Exception as e:
+        return JsonResponse({'status': 'error', 'message': str(e)}, status=400)
+
+@csrf_exempt
 def residents_list(request):
     if request.method == 'GET':
         q = request.GET.get('q')
@@ -573,6 +616,52 @@ def residents_list(request):
             return JsonResponse({'status': 'success', 'id': r.id}, status=201)
         except Exception as e:
             return JsonResponse({'status': 'error', 'message': str(e)}, status=400)
+
+@csrf_exempt
+def residents_detail(request, resident_id):
+    try:
+        resident = Resident.objects.get(id=resident_id)
+    except Resident.DoesNotExist:
+        return JsonResponse({'status': 'error', 'message': 'Resident not found'}, status=404)
+
+    if request.method == 'GET':
+        data = {
+            'id': resident.id,
+            'reg_no': resident.reg_no,
+            'full_name': resident.full_name,
+            'person_type': resident.person_type,
+            'institute_id': resident.institute_id,
+            'institute_code': resident.institute.code if resident.institute else None,
+            'year_of_study': resident.year_of_study,
+            'gender': resident.gender,
+            'phone': resident.phone,
+            'guardian_phone': resident.guardian_phone
+        }
+        return JsonResponse({'status': 'success', 'data': data})
+
+    elif request.method == 'PUT':
+        try:
+            data = json.loads(request.body)
+            resident.reg_no = data.get('reg_no', resident.reg_no)
+            resident.full_name = data.get('full_name', resident.full_name)
+            resident.person_type = data.get('person_type', resident.person_type)
+            resident.institute_id = data.get('institute_id', resident.institute_id)
+            resident.year_of_study = data.get('year_of_study', resident.year_of_study)
+            resident.gender = data.get('gender', resident.gender)
+            resident.phone = data.get('phone', resident.phone)
+            resident.guardian_phone = data.get('guardian_phone', resident.guardian_phone)
+            resident.save()
+            return JsonResponse({'status': 'success', 'message': 'Resident updated'})
+        except Exception as e:
+            return JsonResponse({'status': 'error', 'message': str(e)}, status=400)
+
+    elif request.method == 'DELETE':
+        try:
+            resident.delete()
+            return JsonResponse({'status': 'success', 'message': 'Resident deleted'})
+        except Exception as e:
+            return JsonResponse({'status': 'error', 'message': str(e)}, status=400)
+
 
 @csrf_exempt
 def allocations_check_in(request):
@@ -780,6 +869,7 @@ def allocations_list(request):
                 'resident_name': a.resident.full_name,
                 'resident_reg_no': a.resident.reg_no,
                 'resident_gender': a.resident.gender,
+                'person_type': a.resident.person_type,
                 'hostel_id': a.room.hostel_id,
                 'hostel_name': a.room.hostel.name,
                 'room_id': a.room_id,
@@ -997,6 +1087,29 @@ def init_db_schema(request):
     """
     import os
     try:
+        force = False
+        if request is not None and hasattr(request, 'GET'):
+            force = request.GET.get('force') == 'true'
+
+        if not force:
+            try:
+                with connection.cursor() as cursor:
+                    cursor.execute("""
+                        SELECT EXISTS (
+                            SELECT FROM information_schema.tables 
+                            WHERE table_schema = 'public' 
+                            AND table_name = 'hostels'
+                        );
+                    """)
+                    row = cursor.fetchone()
+                    if row and row[0]:
+                        return JsonResponse({
+                            'status': 'success',
+                            'message': 'Database tables already exist. Preserving existing user data.'
+                        })
+            except Exception:
+                pass
+
         schema_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../db/hostel-database-schema.sql'))
         if not os.path.exists(schema_path):
             schema_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../../hostel-database-schema.sql'))

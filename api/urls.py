@@ -26,7 +26,9 @@ urlpatterns = [
     path('users/<int:user_id>', views.users_detail, name='users_detail'),
     
     # Resident & Allocation operations
+    path('residents/promote-year', views.residents_promote_year, name='residents_promote_year'),
     path('residents', views.residents_list, name='residents_list'),
+    path('residents/<int:resident_id>', views.residents_detail, name='residents_detail'),
     path('allocations/check-in', views.allocations_check_in, name='allocations_check_in'),
     path('allocations/check-out', views.allocations_check_out, name='allocations_check_out'),
     path('allocations', views.allocations_list, name='allocations_list'),
